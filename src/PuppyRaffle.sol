@@ -5,6 +5,7 @@ import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Address} from "@openzeppelin/contracts/utils/Address.sol";
 import {Base64} from "lib/base64/base64.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title PuppyRaffle
 /// @author PuppyLoveDAO
@@ -15,7 +16,7 @@ import {Base64} from "lib/base64/base64.sol";
 /// 3. Users are allowed to get a refund of their ticket & `value` if they call the `refund` function
 /// 4. Every X seconds, the raffle will be able to draw a winner and be minted a random puppy
 /// 5. The owner of the protocol will set a feeAddress to take a cut of the `value`, and the rest of the funds will be sent to the winner of the puppy.
-contract PuppyRaffle is ERC721, Ownable {
+contract PuppyRaffle is ERC721, Ownable, ReentrancyGuard {
     using Address for address payable;
 
     uint256 public immutable entranceFee;
@@ -28,6 +29,10 @@ contract PuppyRaffle is ERC721, Ownable {
     // We do some storage packing to save gas
     address public feeAddress;
     uint64 public totalFees = 0;
+
+    // Mapping to keep track of raffles
+    mapping(address => uint256) public addressToRaffleId;
+    uint256 public raffleId = 0;
 
     // mappings to keep track of token traits
     mapping(uint256 => uint256) public tokenIdToRarity;
@@ -77,30 +82,30 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice duplicate entrants are not allowed
     /// @param newPlayers the list of players to enter the raffle
     function enterRaffle(address[] memory newPlayers) public payable {
-        require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle");
+        require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle"); //@audit were custom reverts an option?
         for (uint256 i = 0; i < newPlayers.length; i++) {
             players.push(newPlayers[i]);
         }
 
         // Check for duplicates
-        for (uint256 i = 0; i < players.length - 1; i++) {
-            for (uint256 j = i + 1; j < players.length; j++) {
-                require(players[i] != players[j], "PuppyRaffle: Duplicate player");
-            }
+        // @audit possible DoS
+        // Check for duplicates only from the new players
+        for (uint256 i = 0; i < newPlayers.length; i++) {
+            require(addressToRaffleId[newPlayers[i]] != raffleId, "PuppyRaffle: Duplicate player");
+            emit RaffleEnter(newPlayers);
         }
-        emit RaffleEnter(newPlayers);
     }
 
     /// @param playerIndex the index of the player to refund. You can find it externally by calling `getActivePlayerIndex`
     /// @dev This function will allow there to be blank spots in the array
-    function refund(uint256 playerIndex) public {
+    function refund(uint256 playerIndex) public nonReentrant {
         address playerAddress = players[playerIndex];
         require(playerAddress == msg.sender, "PuppyRaffle: Only the player can refund");
         require(playerAddress != address(0), "PuppyRaffle: Player already refunded, or is not active");
 
+        players[playerIndex] = address(0);
         payable(msg.sender).sendValue(entranceFee);
 
-        players[playerIndex] = address(0);
         emit RaffleRefunded(playerAddress);
     }
 
@@ -113,7 +118,7 @@ contract PuppyRaffle is ERC721, Ownable {
                 return i;
             }
         }
-        return 0;
+        return type(uint256).max; // Sentinel value indicating "not found"
     }
 
     /// @notice this function will select a winner and mint a puppy
