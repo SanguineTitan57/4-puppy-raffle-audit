@@ -311,3 +311,99 @@ function testReentrancyAttack() public {
     }
 }
 ```
+
+## **[H-2]** Weak randomness in `PuppyRaffle::selectWinner`. Can be manipulated by miners to get favourable outcomes, or they can guess the random number
+
+### **Description**:
+- The `PuppyRaffle::selectWinner` function uses block properties like `block.timestamp` and `block.difficulty` to generate a pseudo-random number. These values can be influenced by miners, allowing them to manipulate the outcome of the raffle in their favor. Additionally, since these values are predictable, an attacker could potentially guess the random number and enter the raffle with a higher chance of winning.
+
+```solidity
+    function selectWinner() external {
+        require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
+
+        uint256 randomNumber = uint256(
+            keccak256(abi.encodePacked(block.timestamp, block.difficulty, players.length))
+        );
+        uint256 winnerIndex = randomNumber % players.length;
+        address winner = players[winnerIndex];
+
+        // Transfer the prize to the winner
+        payable(winner).sendValue(address(this).balance);
+
+        emit RaffleWinnerSelected(winner);
+    }
+```
+
+### **Impact**:
+- Miners can manipulate the block properties to increase their chances of winning the raffle, leading to unfair outcomes. Additionally, attackers who can predict the random number generation can exploit this to their advantage, undermining the integrity of the raffle system.
+
+### **Proof of Concept**:
+- An attacker can simulate multiple block timestamps and difficulties to find a combination that results in them winning the raffle. By entering the raffle multiple times and monitoring the block properties, they can increase their chances of being selected as the winner.
+
+### **Recommended Mitigation**:
+- Use a more secure source of randomness, such as Chainlink VRF (Verifiable Random Function) or Commit Reveal Scheme which provides provably fair and tamper-proof randomness for smart contracts.
+
+
+## **[M-2]** Integer Overflow in arithemtic operation
+
+### **Description**:
+- Prior to Solidity 0.8.0, arithmetic operations were susceptible to integer overflow and underflow vulnerabilities. If the contract uses an older version of Solidity, operations like addition, subtraction, multiplication, etc., could wrap around on overflow, leading to unexpected behavior.
+
+```solidity
+    // We do some storage packing to save gas
+    address public feeAddress;
+    uint64 public totalFees = 0;
+    
+    // @audit overflow possible?
+    totalFees = totalFees + uint64(fee);
+```
+
+### **Impact**:
+- An attacker could exploit this vulnerability by causing an overflow in arithmetic operations, potentially breaking the contract logic, leading to loss of funds or other unintended consequences.
+
+### **Proof of Concept**:
+
+### **Recommended Mitigation**:
+- Use newer versions of Solidity (0.8.0 and above) that have in-built overflow and underflow checks. Alternatively, use libraries like OpenZeppelin's SafeMath for arithmetic operations to ensure safety against overflows and underflows.
+
+
+## **[S-#]** Unsafe Casting and loss of precision in type conversion
+
+### **Description**:
+- Unsafe casting between different integer types can lead to loss of precision or unexpected behavior if the value being cast exceeds the range of the target type. For example, casting from a larger type (e.g., uint256) to a smaller type (e.g., uint64) without proper checks can result in truncation of data.
+
+```solidity
+    totalFees = totalFees + uint64(fee);
+```
+
+### **Impact**:
+- If the `fee` value exceeds the maximum value of `uint64`, it will be truncated when cast, leading to incorrect calculations and potential vulnerabilities in the contract's logic.
+
+### **Proof of Concept**:
+
+### **Recommended Mitigation**:
+Drop the unnecessary casting or implement checks to ensure that the value being cast fits within the range of the target type before performing the cast.
+
+
+## **[S-#]** Weak randomness in `PuppyRaffle::selectWinner`. Can be manipulated by miners to get favourable outcomes, or they can guess the random number
+
+### **Description**:
+- The `PuppyRaffle::selectWinner` function uses block properties like `block.timestamp` and `block.difficulty` to generate a pseudo-random number. These values can be influenced by miners, allowing them to manipulate the outcome of the raffle in their favor. Additionally, since these values are predictable, an attacker could potentially guess the random number and enter the raffle with a higher chance of winning.
+
+### **Impact**:
+- Miners can manipulate the block properties to increase their chances of winning the raffle, leading to unfair outcomes. Additionally, attackers who can predict the random number generation can exploit this to their advantage, undermining the integrity of the raffle system.
+
+### **Proof of Concept**:
+```solidity
+uint256 rarity = uint256(keccak256(abi.encodePacked(msg.sender, block.difficulty))) % 100;
+if (rarity <= COMMON_RARITY) {
+    tokenIdToRarity[tokenId] = COMMON_RARITY;
+} else if (rarity <= COMMON_RARITY + RARE_RARITY) {
+    tokenIdToRarity[tokenId] = RARE_RARITY;
+} else {
+    tokenIdToRarity[tokenId] = LEGENDARY_RARITY;
+}
+```
+
+### **Recommended Mitigation**:
+- Use a more secure source of randomness, such as Chainlink VRF (Verifiable Random Function) or Commit Reveal Scheme which provides provably fair and tamper-proof randomness for smart contracts.

@@ -127,20 +127,23 @@ contract PuppyRaffle is ERC721, Ownable, ReentrancyGuard {
     /// @dev we use a hash of on-chain data to generate the random numbers
     /// @dev we reset the active players array after the winner is selected
     /// @dev we send 80% of the funds to the winner, the other 20% goes to the feeAddress
-    function selectWinner() external {
+    function selectWinner() external nonReentrant {
         require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
+        
+        // @audit Weak randomness
         uint256 winnerIndex =
             uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
         address winner = players[winnerIndex];
         uint256 totalAmountCollected = players.length * entranceFee;
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
-        totalFees = totalFees + uint64(fee);
 
         uint256 tokenId = totalSupply();
 
         // We use a different RNG calculate from the winnerIndex to determine rarity
+
+        // @audit Weak randomness
         uint256 rarity = uint256(keccak256(abi.encodePacked(msg.sender, block.difficulty))) % 100;
         if (rarity <= COMMON_RARITY) {
             tokenIdToRarity[tokenId] = COMMON_RARITY;
@@ -150,9 +153,19 @@ contract PuppyRaffle is ERC721, Ownable, ReentrancyGuard {
             tokenIdToRarity[tokenId] = LEGENDARY_RARITY;
         }
 
+        // @audit Renetrancy attack has been prevented by CEI
+        // Effects
         delete players;
         raffleStartTime = block.timestamp;
         previousWinner = winner;
+        
+        // @audit overflow possible?
+        // @audit unsafe casting
+        totalFees = totalFees + uint64(fee);
+
+        // Interactions
+        
+        // @audit Winner wouldn't be unable to receive rewards if fallback function was broken!_safeMint(winner, tokenId);
         (bool success,) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
         _safeMint(winner, tokenId);
@@ -160,9 +173,11 @@ contract PuppyRaffle is ERC721, Ownable, ReentrancyGuard {
 
     /// @notice this function will withdraw the fees to the feeAddress
     function withdrawFees() external {
+        // @audit possible DoS if players are active
         require(address(this).balance == uint256(totalFees), "PuppyRaffle: There are currently players active!");
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
+        // @audit What if the feeAddress is a smart contract with a fallback/receive which reverts?
         (bool success,) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
     }
