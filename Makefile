@@ -27,4 +27,8 @@ format :; forge fmt
 
 anvil :; anvil -m 'test test test test test test test test test test test junk' --steps-tracing --block-time 1
 
-slither :; slither . --config-file slither.config.json --checklist 
+slither :; slither . --config-file slither.config.json --checklist
+
+# Create Report PDF
+report:
+	cd audit-data && pandoc report_layout.md -o pandoc_report.pdf --from markdown --template=eisvogel --listings
